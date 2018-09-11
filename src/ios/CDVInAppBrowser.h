@@ -20,7 +20,11 @@
 #import <Cordova/CDVPlugin.h>
 #import <Cordova/CDVInvokedUrlCommand.h>
 #import <Cordova/CDVScreenOrientationDelegate.h>
-#import <Cordova/CDVWebViewDelegate.h>
+#ifdef __CORDOVA_4_0_0
+    #import <Cordova/CDVUIWebViewDelegate.h>
+#else
+    #import <Cordova/CDVWebViewDelegate.h>
+#endif
 
 @class CDVInAppBrowserViewController;
 
@@ -30,6 +34,7 @@
 
 @property (nonatomic, retain) CDVInAppBrowserViewController* inAppBrowserViewController;
 @property (nonatomic, copy) NSString* callbackId;
+@property (nonatomic, copy) NSRegularExpression *callbackIdPattern;
 
 - (void)open:(CDVInvokedUrlCommand*)command;
 - (void)close:(CDVInvokedUrlCommand*)command;
@@ -46,7 +51,11 @@
     NSString* _userAgent;
     NSString* _prevUserAgent;
     NSInteger _userAgentLockToken;
+#ifdef __CORDOVA_4_0_0
+    CDVUIWebViewDelegate* _webViewDelegate;
+#else
     CDVWebViewDelegate* _webViewDelegate;
+#endif
 }
 
 @property (nonatomic, strong) IBOutlet UIWebView* webView;

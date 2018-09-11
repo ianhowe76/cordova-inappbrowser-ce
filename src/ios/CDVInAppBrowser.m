@@ -20,7 +20,6 @@
 #import "CDVInAppBrowser.h"
 #import <Cordova/CDVPluginResult.h>
 #import <Cordova/CDVUserAgentUtil.h>
-#import <Cordova/CDVJSON.h>
 
 #define    kInAppBrowserTargetSelf @"_self"
 #define    kInAppBrowserTargetSystem @"_system"
@@ -32,6 +31,11 @@
 #define    BUTTON_BACKGROUND_COLOR @"#448EE3"
 
 #pragma mark CDVInAppBrowser
+
+@interface CDVInAppBrowser () {
+    UIStatusBarStyle _previousStatusBarStyle;
+}
+@end
 
 CDVInAppBrowserViewController *vc;
 CDVInAppBrowserViewController *iabvc;
@@ -52,13 +56,11 @@ NSString *CLOSE_BUTTON_LABEL = @"Done";
 
 @implementation CDVInAppBrowser
 
-- (CDVInAppBrowser*)initWithWebView:(UIWebView*)theWebView
+- (void)pluginInitialize
 {
-    self = [super initWithWebView:theWebView];
-
-    iab = self;
-
-    return self;
+    // iab = self;
+    _previousStatusBarStyle = -1;
+    _callbackIdPattern = nil;
 }
 
 - (void)onReset
@@ -147,7 +149,11 @@ NSString *CLOSE_BUTTON_LABEL = @"Done";
             self.callbackId = command.callbackId;
 
             if (url != nil) {
+#ifdef __CORDOVA_4_0_0
+                NSURL* baseUrl = [self.webViewEngine URL];
+#else
                 NSURL* baseUrl = [self.webView.request URL];
+#endif
                 NSURL* absoluteUrl = [[NSURL URLWithString:url relativeToURL:baseUrl] absoluteURL];
 
                 if ([self isSystemUrl:absoluteUrl]) {
@@ -379,12 +385,19 @@ NSString *CLOSE_BUTTON_LABEL = @"Done";
 
 - (void)openInCordovaWebView:(NSURL*)url withOptions:(NSString*)options
 {
+    NSURLRequest* request = [NSURLRequest requestWithURL:url];
+
+#ifdef __CORDOVA_4_0_0
+    // the webview engine itself will filter for this according to <allow-navigation> policy
+    // in config.xml for cordova-ios-4.0
+    [self.webViewEngine loadRequest:request];
+#else
     if ([self.commandDelegate URLIsWhitelisted:url]) {
-        NSURLRequest* request = [NSURLRequest requestWithURL:url];
         [self.webView loadRequest:request];
     } else { // this assumes the InAppBrowser can be excepted from the white-list
         [self openInInAppBrowser:url withOptions:options];
     }
+#endif
 }
 
 - (void)openInSystem:(NSURL*)url
@@ -414,7 +427,8 @@ NSString *CLOSE_BUTTON_LABEL = @"Done";
     }
 
     if (jsWrapper != nil) {
-        NSString* sourceArrayString = [@[source] JSONString];
+        NSData* jsonData = [NSJSONSerialization dataWithJSONObject:@[source] options:0 error:nil];
+        NSString* sourceArrayString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
         if (sourceArrayString) {
             NSString* sourceString = [sourceArrayString substringWithRange:NSMakeRange(1, [sourceArrayString length] - 2)];
             NSString* jsToInject = [NSString stringWithFormat:jsWrapper, sourceString];
@@ -471,6 +485,23 @@ NSString *CLOSE_BUTTON_LABEL = @"Done";
     [self injectDeferredObject:[command argumentAtIndex:0] withWrapper:jsWrapper];
 }
 
+- (BOOL)isValidCallbackId:(NSString *)callbackId
+{
+    NSError *err = nil;
+    // Initialize on first use
+    if (self.callbackIdPattern == nil) {
+        self.callbackIdPattern = [NSRegularExpression regularExpressionWithPattern:@"^InAppBrowser[0-9]{1,10}$" options:0 error:&err];
+        if (err != nil) {
+            // Couldn't initialize Regex; No is safer than Yes.
+            return NO;
+        }
+    }
+    if ([self.callbackIdPattern firstMatchInString:callbackId options:0 range:NSMakeRange(0, [callbackId length])]) {
+        return YES;
+    }
+    return NO;
+}
+
 /**
  * The iframe bridge provided for the InAppBrowser is capable of executing any oustanding callback belonging
  * to the InAppBrowser plugin. Care has been taken that other callbacks cannot be triggered, and that no
@@ -497,7 +528,7 @@ NSString *CLOSE_BUTTON_LABEL = @"Done";
         NSString* scriptCallbackId = [url host];
         CDVPluginResult* pluginResult = nil;
 
-        if ([scriptCallbackId hasPrefix:@"InAppBrowser"]) {
+        if ([self isValidCallbackId:scriptCallbackId]) {
             NSString* scriptResult = [url path];
             NSError* __autoreleasing error = nil;
 
@@ -620,7 +651,11 @@ NSString *CLOSE_BUTTON_LABEL = @"Done";
     if (self != nil) {
         _userAgent = userAgent;
         _prevUserAgent = prevUserAgent;
+#ifdef __CORDOVA_4_0_0
+        _webViewDelegate = [[CDVUIWebViewDelegate alloc] initWithDelegate:self];
+#else
         _webViewDelegate = [[CDVWebViewDelegate alloc] initWithDelegate:self];
+#endif
 
         [self createViews];
     }
